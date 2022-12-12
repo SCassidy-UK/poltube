@@ -87,7 +87,7 @@ class ChannelDictBuilder(object):
         return response
 
 
-def main(channelurl, key):
+def main(channel_id, key):
     #handle = channelurl.partition('@')[2]
     #channel_id = handle_to_id(handle)
     yt_client = make_api_client(key)
