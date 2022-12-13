@@ -9,59 +9,68 @@ with open('cookie.json', 'r', encoding='utf8') as f:
     cookie = json.load(f)
 
 
-with Session() as session:
-    channel_page = session.get("https://www.youtube.com/@thephilosophytube",
-                               cookies=cookie)
+class UrlIdFinder():
+    def __init__(self, session, cache_path, cookie):
+        self.session = Session()
+        self.cache_path = cache_path
+        self.cache = self.load_cache(cache_path)
+        self.cookie = cookie
 
-def load_cache(fp):
-    # Cache file should be a csv with URL, ID rows
-    # Returns a dict of URL-ID pairs
-    with open(fp, 'r', encoding='utf8') as cache_file:
-        cache = dict(csv.reader(cache_file))
-        return cache
+    def __enter__(self):
+        return self
 
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.session.close()
+        self.write_out_cache()
 
-def url_to_id(channel_url, session, cache, cookie, failures):
-    id_from_cache = check_id_cached(channel_url, cache)
-    if id_from_cache:
-        channel_id = id_from_cache
-    else:
-        get_id_from_web(channel_url, session, cookie, failures)
-    return channel_id
+    def load_cache(self, fp):
+        # Cache file should be a csv with URL, ID rows
+        # Returns a dict of URL-ID pairs
+        with open(fp, 'r', encoding='utf8') as cache_file:
+            cache = dict(csv.reader(cache_file))
+            return cache
 
+    def url_to_id(self, channel_url):
+        '''
+        Return a channel's ID from its url. Uses cached IDs if
+        possible, else downloads the channel page and looks for it
+        there.
+        '''
 
-def get_id_from_web(channel_url, session, cookie):
-    channel_response = session.get(channel_url, cookie)
-    id_from_web = find_id_in_page(channel_response)
-    if not id_from_web:
-        add_to_failures(channel_url, failures)
-        return None
-    else:
-        return id_from_web
+        id_from_cache = self.check_id_cached(channel_url)
+        if id_from_cache:
+            channel_id = id_from_cache
+        else:
+            channel_id = self.get_id_from_web(channel_url)
+        # if an id was found, add it to the cache
+        if channel_id:
+            self.cache[channel_url] = channel_id
+        return channel_id
 
-def check_id_cached(url, cache):
-    try:
-        return cache[url]
-    except KeyError:
-        return None
+    def get_id_from_web(self, channel_url):
+        channel_response = self.session.get(channel_url, cookies=self.cookie)
+        page_source = channel_response.content
+        id_from_web = self.find_id_in_page(page_source)
+        if not id_from_web:
+            return None
+        else:
+            return id_from_web
 
+    def check_id_cached(self, url):
+        if url in self.cache:
+            return self.cache[url]
+        else:
+            return None
 
-def check_channel_found(page):
-    pass
+    def write_out_cache(self, fp):
+        with open(fp, 'w', encoding='utf8') as cache_file:
+            writer = csv.writer(cache_file)
+            writer.writerows(self.cache)
 
-def find_id_in_page(page):
-    pass
+    def find_id_in_page(self, page):
+        id_start = page.find('externalId') + 13  # the id starts 13 chars later
+        id_end = page.find('",', id_start)
+        return page[id_start:id_end]
+        
 
-def add_to_failures(url, error):
-    pass
-
-def add_to_cache(url, channel_id):
-    pass
-
-
-def main(channelurls):
-    with requests.Session() as session:
-        session.headers['User-Agent'] = USER_AGENT
-        for url in channelurls:
-            channel_id = url_to_id(url, session)
 
