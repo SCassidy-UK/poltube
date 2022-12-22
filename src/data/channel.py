@@ -1,5 +1,10 @@
 import os
 import googleapiclient.discovery
+from requests import Session
+import csv
+import json
+from time import sleep
+from random import randint
 
 
 def make_api_client(key):
@@ -9,10 +14,8 @@ def make_api_client(key):
 
     api_service_name = "youtube"
     api_version = "v3"
-    DEVELOPER_KEY = key
-
     client = googleapiclient.discovery.build(
-        api_service_name, api_version, developerKey=DEVELOPER_KEY)
+        api_service_name, api_version, developerKey=key)
     return client
 
 
@@ -85,6 +88,88 @@ class ChannelDictBuilder(object):
             order='relevance')
         response = request.execute()
         return response
+
+
+class UrlIdFinder():
+    '''
+    A web scraper that takes YouTube channel URLs and returns
+    the channel's unique ID. Reads from and updates a cache file
+    that should be provided to reduce numbers of requests made
+    Recommended usage:
+        with UrlIdFinder(path, cookie) as idfinder:
+            idfinder.url_to_id({url})
+    '''
+    def __init__(self, cache_path, cookie_path):
+        self.session = Session()
+        self.cache_path = cache_path
+        self.cache = self.load_cache(cache_path)
+        self.cookie = self.read_cookie(cookie_path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.session.close()
+        self.write_out_cache(self.cache_path)
+
+    def load_cache(self, fp):
+        # Cache file should be a csv with URL, ID rows
+        # Returns a dict of URL-ID pairs
+        with open(fp, 'r', encoding='utf8') as cache_file:
+            cache = dict(csv.reader(cache_file))
+            return cache
+
+    def read_cookie(self, cookie_path):
+        with open(cookie_path, 'r', encoding='utf8') as cookief:
+            return json.load(cookief)
+
+    def url_to_id(self, channel_url):
+        '''
+        example
+        In: 'https://youtube.com/@JordanBPeterson'
+        Out: 'UCL_f53ZEJxp8TtlOkHwMV9Q'
+        Return a channel's ID from its url. Uses cached IDs if
+        possible, else requests the channel page and looks for it
+        there.
+        '''
+        id_from_cache = self.check_id_cached(channel_url)
+        if id_from_cache:
+            channel_id = id_from_cache
+            print("Found ID in cache.")
+        else:
+            print("Trying to get ID from web.")
+            channel_id = self.get_id_from_web(channel_url)
+            sleep(randint(2, 5))
+        # if an id was found, add it to the cache
+        if channel_id:
+            self.cache[channel_url] = channel_id
+        return channel_id
+
+    def get_id_from_web(self, channel_url):
+        channel_response = self.session.get(channel_url, cookies=self.cookie)
+        page_source = str(channel_response.content)
+        id_from_web = self.find_id_in_page(page_source)
+        if not id_from_web:
+            return None
+        else:
+            return id_from_web
+
+    def check_id_cached(self, url):
+        if url in self.cache:
+            return self.cache[url]
+        else:
+            return None
+
+    def write_out_cache(self, fp):
+        with open(fp, 'w', encoding='utf8') as cache_file:
+            rows = [(url, Id) for url, Id in self.cache.items()]
+            writer = csv.writer(cache_file)
+            writer.writerows(rows)
+
+    def find_id_in_page(self, page):
+        id_start = page.find('externalId') + 13  # the id starts 13 chars later
+        id_end = page.find('",', id_start)
+        return page[id_start:id_end]
 
 
 def main(channel_id, key):
