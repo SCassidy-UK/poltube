@@ -1,5 +1,6 @@
 import json
 import channel as chan_rqsts
+from googleapiclient.errors import HttpError
 import os.path
 import csv
 from path import filepaths
@@ -34,6 +35,7 @@ class RawTrainingDataDownloader():
             self.urlconverter = uif
             for channel_dict in self.urls_to_raw_data():
                 with open(self.output_path, 'a', encoding='utf8') as f:
+                    f.write('\n')
                     json.dump(channel_dict, f)
 
     def urls_to_raw_data(self):

@@ -31,6 +31,7 @@ class ChannelDictBuilder(object):
 
 
     def request_channel_basics(self):
+        print(f"Getting basic data for channel {self.channel_id}.")
         request = self.client.channels().list(
             part="snippet,contentDetails,statistics",
             id=self.channel_id)
@@ -38,12 +39,13 @@ class ChannelDictBuilder(object):
         return response
 
     def request_channel_uploads(self):
+        print(f"Getting channel uploads playlist")
         uploads_id = self.channel['items'][0]['contentDetails']['relatedPlaylists']['uploads']
         request = self.client.playlistItems().list(
             playlistId=uploads_id,
             part="snippet,contentDetails",
             maxResults=20)
-        response = request.execute()
+        response = self.attempt_request(request)
         return response
 
     def get_error_reason(self, error):
@@ -53,8 +55,6 @@ class ChannelDictBuilder(object):
         match reason:
             case "notFound":
                 print(f"Channel uploads for {name} not found. Maybe they have none?")
-        
-
 
     def make_channel_dict(self, label=None):
         channel_details = self.channel['items'][0]
@@ -75,6 +75,7 @@ class ChannelDictBuilder(object):
             playlist_dict[vid_id] = self.make_video_dict(vid)
             vname = playlist_dict[vid_id]['title']
             try:
+                print(f"Getting comments for video {vname}.")
                 playlist_dict[vid_id]['comments'] = self.make_comments_dict(vid_id, vname)
             except HttpError:
                 print(f"Comments disabled for video {vname}.")
@@ -110,6 +111,8 @@ class ChannelDictBuilder(object):
         except HttpError:
             name = self.channel_name
             print(f"Comments disabled  {name} failed. Maybe they have none?")
+        if response:
+            print("Downloaded comments")
         return response
 
     def attempt_request(self, request):
@@ -123,6 +126,7 @@ class ChannelDictBuilder(object):
             err.time = time
             err.reason = reason
             raise err
+        return response
 
 
 
@@ -164,6 +168,7 @@ class UrlIdFinder():
         possible, else requests the channel page and looks for it
         there.
         '''
+        print(f"Getting channel id for {channel_url}")
         id_from_cache = self.check_id_cached(channel_url)
         if id_from_cache:
             channel_id = id_from_cache
@@ -174,6 +179,7 @@ class UrlIdFinder():
             sleep(randint(2, 5))
         # if an id was found, add it to the cache
         if channel_id:
+            print(f"Channel ID is: {channel_id}")
             self.cache[channel_url] = channel_id
         return channel_id
 
