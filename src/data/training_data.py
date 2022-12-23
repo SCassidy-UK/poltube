@@ -10,7 +10,6 @@ class RawTrainingDataDownloader():
     def __init__(self, paths):
         self.channels_and_labels = self.read_channels_list(paths['channels'])
         self.output_path = paths['output']
-        self.cookie_path = paths['cookie']
         self.cache_path = paths['cache']
         self.api_key = self.read_api_key(paths['api-key'])
         self.api_client = chan_rqsts.make_api_client(self.api_key)
@@ -31,17 +30,22 @@ class RawTrainingDataDownloader():
                 print("emptied existing file")
         else:
             return
-        with chan_rqsts.UrlIdFinder(self.cache_path, self.cookie_path) as uif:
-            for channel_dict in self.urls_to_raw_data(uif):
+        with chan_rqsts.UrlIdFinder(self.cache_path) as uif:
+            self.urlconverter = uif
+            for channel_dict in self.urls_to_raw_data():
                 with open(self.output_path, 'a', encoding='utf8') as f:
                     json.dump(channel_dict, f)
 
-    def urls_to_raw_data(self, urlconverter):
+    def urls_to_raw_data(self):
         for chan_url in self.channels_and_labels:
             chan_label = self.channels_and_labels[chan_url]
-            chan_id = urlconverter.url_to_id(chan_url)
+            chan_id = self.urlconverter.url_to_id(chan_url)
             requester = chan_rqsts.ChannelDictBuilder(self.api_client, chan_id)
-            channel_dict = requester.make_channel_dict(label=chan_label)
+            try:
+                channel_dict = requester.make_channel_dict(label=chan_label)
+            except HttpError as err:
+                self.log_failure(err)
+                continue
             yield channel_dict
 
     def check_overwrite(self):
@@ -57,3 +61,8 @@ class RawTrainingDataDownloader():
                     continue
         else:
             return True
+
+    def log_failure(self, err):
+        print(err.time)
+        print(err.name)
+        print(err.reason)

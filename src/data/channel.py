@@ -1,7 +1,9 @@
 import os
 import googleapiclient.discovery
+from googleapiclient.errors import HttpError
 from requests import Session
 import csv
+from datetime import datetime
 import json
 from time import sleep
 from random import randint
@@ -24,7 +26,9 @@ class ChannelDictBuilder(object):
         self.client = client
         self.channel_id = channel_id
         self.channel = self.request_channel_basics()
+        self.channel_name = self.channel['items'][0]['snippet']['title']
         self.recentuploads = self.request_channel_uploads()
+
 
     def request_channel_basics(self):
         request = self.client.channels().list(
@@ -41,6 +45,16 @@ class ChannelDictBuilder(object):
             maxResults=20)
         response = request.execute()
         return response
+
+    def get_error_reason(self, error):
+        return json.loads(err.content).get('error').get('errors')[0].get('reason')
+
+    def handle_uploads_error(self, reason):
+        match reason:
+            case "notFound":
+                print(f"Channel uploads for {name} not found. Maybe they have none?")
+        
+
 
     def make_channel_dict(self, label=None):
         channel_details = self.channel['items'][0]
@@ -59,7 +73,12 @@ class ChannelDictBuilder(object):
         for vid in playlist:
             vid_id = vid['contentDetails']['videoId']
             playlist_dict[vid_id] = self.make_video_dict(vid)
-            playlist_dict[vid_id]['comments'] = self.make_comments_dict(vid_id)
+            vname = playlist_dict[vid_id]['title']
+            try:
+                playlist_dict[vid_id]['comments'] = self.make_comments_dict(vid_id, vname)
+            except HttpError:
+                print(f"Comments disabled for video {vname}.")
+                continue
         return playlist_dict
 
     def make_video_dict(self, video):
@@ -70,7 +89,7 @@ class ChannelDictBuilder(object):
             }
         return video_dict
 
-    def make_comments_dict(self, video_id):
+    def make_comments_dict(self, video_id, video_name):
         comments_response = self.request_video_comments(video_id)
         # Shorten the chain of keys
         def short(item): return item['snippet']['topLevelComment']['snippet']
@@ -86,8 +105,25 @@ class ChannelDictBuilder(object):
             maxResults=50,
             videoId=video_id,
             order='relevance')
-        response = request.execute()
+        try:
+            response = self.attempt_request(request)
+        except HttpError:
+            name = self.channel_name
+            print(f"Comments disabled  {name} failed. Maybe they have none?")
         return response
+
+    def attempt_request(self, request):
+        try:
+            response = request.execute()
+        except HttpError as err:
+            name = self.channelname
+            reason = self.get_error_reason(err)
+            time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            err.name = name
+            err.time = time
+            err.reason = reason
+            raise err
+
 
 
 class UrlIdFinder():
@@ -96,14 +132,14 @@ class UrlIdFinder():
     the channel's unique ID. Reads from and updates a cache file
     that should be provided to reduce numbers of requests made
     Recommended usage:
-        with UrlIdFinder(path, cookie) as idfinder:
+        with UrlIdFinder(path) as idfinder:
             idfinder.url_to_id({url})
     '''
-    def __init__(self, cache_path, cookie_path):
+    def __init__(self, cache_path):
         self.session = Session()
+        self.session.cookies.set('CONSENT', 'YES+cb', domain='.youtube.com')
         self.cache_path = cache_path
         self.cache = self.load_cache(cache_path)
-        self.cookie = self.read_cookie(cookie_path)
 
     def __enter__(self):
         return self
@@ -118,10 +154,6 @@ class UrlIdFinder():
         with open(fp, 'r', encoding='utf8') as cache_file:
             cache = dict(csv.reader(cache_file))
             return cache
-
-    def read_cookie(self, cookie_path):
-        with open(cookie_path, 'r', encoding='utf8') as cookief:
-            return json.load(cookief)
 
     def url_to_id(self, channel_url):
         '''
@@ -146,7 +178,7 @@ class UrlIdFinder():
         return channel_id
 
     def get_id_from_web(self, channel_url):
-        channel_response = self.session.get(channel_url, cookies=self.cookie)
+        channel_response = self.session.get(channel_url)
         page_source = str(channel_response.content)
         id_from_web = self.find_id_in_page(page_source)
         if not id_from_web:
