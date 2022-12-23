@@ -76,7 +76,7 @@ class ChannelDictBuilder(object):
             vname = playlist_dict[vid_id]['title']
             try:
                 print(f"Getting comments for video {vname}.")
-                playlist_dict[vid_id]['comments'] = self.make_comments_dict(vid_id, vname)
+                playlist_dict[vid_id]['comments'] = self.make_comments_dict(vid_id)
             except HttpError:
                 print(f"Comments disabled for video {vname}.")
                 continue
@@ -90,14 +90,14 @@ class ChannelDictBuilder(object):
             }
         return video_dict
 
-    def make_comments_dict(self, video_id, video_name):
+    def make_comments_dict(self, video_id):
         comments_response = self.request_video_comments(video_id)
         # Shorten the chain of keys
         def short(item): return item['snippet']['topLevelComment']['snippet']
         comments_dict = {}
         for comment in comments_response['items']:
-            comment['id'] = {'date': short(comment)['publishedAt'],
-                             'text': short(comment)['textOriginal']}
+            comments_dict[comment['id']] = {'date': short(comment)['publishedAt'],
+                                           'text': short(comment)['textOriginal']}
         return comments_dict
 
     def request_video_comments(self, video_id):
